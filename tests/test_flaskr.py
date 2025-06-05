@@ -144,6 +144,79 @@ class TestFlaskr:
             # the database state is not guaranteed. In a real-world scenario,
             # you might want to set up a known database state before running this test.
 
+    def test_remove_entry(self):
+        """
+        Test the remove_entry function to ensure it correctly removes an entry from the database.
+        """
+        with app.test_client() as client:
+            # First, login
+            auth = AuthActions(client)
+            auth.login()
+            
+            # Add a test entry
+            client.post('/add', data=dict(
+                title='Test Entry to Remove',
+                text='This entry will be removed'
+            ), follow_redirects=True)
+            
+            # Get the entries to find the ID of the entry we just added
+            with app.app_context():
+                db = get_db()
+                entry = db.execute('SELECT id FROM entries WHERE title = ?', 
+                                  ['Test Entry to Remove']).fetchone()
+                
+                # Ensure the entry was added
+                assert entry is not None
+                entry_id = entry['id']
+                
+                # Remove the entry
+                response = client.post(f'/remove/{entry_id}', follow_redirects=True)
+                
+                # Check if the response contains the success message
+                assert b'Entry was successfully removed' in response.data
+                
+                # Verify the entry was removed from the database
+                entry = db.execute('SELECT id FROM entries WHERE id = ?', 
+                                  [entry_id]).fetchone()
+                assert entry is None
+    
+    def test_remove_entry_unauthorized(self):
+        """
+        Test that unauthorized users cannot remove entries.
+        """
+        with app.test_client() as client:
+            # First, login to add an entry
+            auth = AuthActions(client)
+            auth.login()
+            
+            # Add a test entry
+            client.post('/add', data=dict(
+                title='Test Entry for Unauthorized Removal',
+                text='This entry should not be removed by unauthorized users'
+            ), follow_redirects=True)
+            
+            # Get the entry ID
+            with app.app_context():
+                db = get_db()
+                entry = db.execute('SELECT id FROM entries WHERE title = ?', 
+                                  ['Test Entry for Unauthorized Removal']).fetchone()
+                entry_id = entry['id']
+            
+            # Logout
+            auth.logout()
+            
+            # Try to remove the entry without being logged in
+            response = client.post(f'/remove/{entry_id}', follow_redirects=True)
+            
+            # Should get a 401 Unauthorized response
+            assert b'Unauthorized' in response.data
+            
+            # Verify the entry was not removed from the database
+            with app.app_context():
+                db = get_db()
+                entry = db.execute('SELECT id FROM entries WHERE id = ?', 
+                                  [entry_id]).fetchone()
+                assert entry is not None
 
 
 class AuthActions(object):
